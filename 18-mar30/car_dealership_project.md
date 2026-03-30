@@ -56,7 +56,7 @@ This is your OOP warm-up. You'll design a `Car` class that represents a single v
 
 **Task 1.1 — Define the class and constructor**
 
-> 💡 **Hint:** In Python, a class constructor is the `__init__` method. All the attributes above should become instance variables using `self.`. The `id` parameter should have a default value of `None` since new cars won't have a database ID yet.
+> 💡 **Hint:** In Python, a class constructor is the `__init__` method. All the attributes above should become instance variables using `self.`
 
 ```python
 # car.py
@@ -522,6 +522,9 @@ Ask for an ID, fetch that car, show current values, let the user change fields.
 > - For each field, you can offer: "Press Enter to keep current value".
 >   - Get input as a string. If it's not empty, update that field on the car object.
 >   - e.g., `new_make = input(f"Make [{car.make}]: ")` — if not blank, `car.make = new_make`
+>   - Alternatively:
+>    `if new_make := input(f"Make [{car.make}]: "):`
+            `car.make = new_make`
 > - Call `update_car(car)` when done.
 
 ---
