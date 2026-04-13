@@ -13,7 +13,7 @@ Use only render, for every page add any of these data  in the main block (includ
 
 * 3 variables with different data types
 * a list of mixed data types of length 6
-* a dictionary with string keys and different data types of length 5
+* a dictionary with string keys and different data types  values of length 5
 
 
 
