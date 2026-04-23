@@ -31,15 +31,23 @@ This guide walks you through building a Django application to manage animals in 
 
 ### Django Generic Class-Based Views Used
 
-| View Class     | Purpose                      |
-|----------------|------------------------------|
-| `TemplateView` | Home / landing page          |
-| `ListView`     | List all animals             |
-| `DetailView`   | View a single animal         |
-| `CreateView`   | Add a new animal             |
-| `UpdateView`   | Edit an existing animal      |
-| `DeleteView`   | Delete an animal             |
-| `FormView`     | Search animals by attributes |
+| View Class         | Category   | Purpose                                   |
+|--------------------|------------|-------------------------------------------|
+| `TemplateView`     | Display    | Home / landing page                       |
+| `ListView`         | Display    | List all animals with pagination          |
+| `DetailView`       | Display    | View a single animal                      |
+| `CreateView`       | Editing    | Add a new animal                          |
+| `UpdateView`       | Editing    | Edit an existing animal                   |
+| `DeleteView`       | Editing    | Delete an animal                          |
+| `FormView`         | Editing    | Search animals by attributes              |
+| `RedirectView`     | Navigation | Redirect a shortcut URL to the home page  |
+| `ArchiveIndexView` | Date-based | List all years that have animals          |
+| `YearArchiveView`  | Date-based | List animals added in a specific year     |
+| `MonthArchiveView` | Date-based | List animals added in a specific month    |
+| `WeekArchiveView`  | Date-based | List animals added in a specific week     |
+| `DayArchiveView`   | Date-based | List animals added on a specific day      |
+| `TodayArchiveView` | Date-based | List animals added today                  |
+| `DateDetailView`   | Date-based | View one animal verified by its date      |
 
 ---
 
@@ -114,13 +122,18 @@ zoo_project/
     │   └── __init__.py
     └── templates/
         └── animals/
-            ├── base.html                  ← Shared layout with navbar
-            ├── home.html                  ← TemplateView
-            ├── animal_list.html           ← ListView
-            ├── animal_detail.html         ← DetailView
-            ├── animal_form.html           ← CreateView / UpdateView
-            ├── animal_confirm_delete.html ← DeleteView
-            └── animal_search.html         ← FormView (form + results)
+            ├── base.html                    ← Shared layout with navbar
+            ├── home.html                    ← TemplateView
+            ├── animal_list.html             ← ListView
+            ├── animal_detail.html           ← DetailView + DateDetailView
+            ├── animal_form.html             ← CreateView / UpdateView
+            ├── animal_confirm_delete.html   ← DeleteView
+            ├── animal_search.html           ← FormView (form + results)
+            ├── animal_archive.html          ← ArchiveIndexView
+            ├── animal_archive_year.html     ← YearArchiveView
+            ├── animal_archive_month.html    ← MonthArchiveView
+            ├── animal_archive_week.html     ← WeekArchiveView
+            └── animal_archive_day.html      ← DayArchiveView / TodayArchiveView
 ```
 
 ---
@@ -156,6 +169,7 @@ TEMPLATES = [
 ```python
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 
 
 class Animal(models.Model):
@@ -163,6 +177,10 @@ class Animal(models.Model):
     age = models.IntegerField(help_text="Age in years")
     weight = models.FloatField(help_text="Weight in kilograms")
     born_in_captivity = models.BooleanField(default=False)
+
+    # date_added is required by all date-based archive views.
+    # It records when the animal was entered into the system.
+    date_added = models.DateField(default=timezone.now)
 
     class Meta:
         ordering = ['name']   # Default queryset ordering: alphabetical by name
@@ -193,8 +211,8 @@ from .models import Animal
 
 @admin.register(Animal)
 class AnimalAdmin(admin.ModelAdmin):
-    list_display = ['name', 'age', 'weight', 'born_in_captivity']
-    list_filter = ['born_in_captivity']
+    list_display = ['name', 'age', 'weight', 'born_in_captivity', 'date_added']
+    list_filter = ['born_in_captivity', 'date_added']
     search_fields = ['name']
 ```
 
@@ -225,26 +243,52 @@ from . import views
 app_name = 'animals'   # Enables URL namespacing (e.g., {% url 'animals:animal-list' %})
 
 urlpatterns = [
-    # TemplateView: Home page
+
+    # --- RedirectView: /zoo/ redirects to the home page ---
+    path('zoo/', views.ZooRedirectView.as_view(), name='zoo-redirect'),
+
+    # --- TemplateView: Home page ---
     path('', views.HomeView.as_view(), name='home'),
 
-    # ListView: All animals
+    # --- ListView: All animals ---
     path('animals/', views.AnimalListView.as_view(), name='animal-list'),
 
-    # DetailView: Single animal
+    # --- DetailView: Single animal by pk ---
     path('animals/<int:pk>/', views.AnimalDetailView.as_view(), name='animal-detail'),
 
-    # CreateView: Add new animal
+    # --- CreateView: Add new animal ---
     path('animals/add/', views.AnimalCreateView.as_view(), name='animal-create'),
 
-    # UpdateView: Edit existing animal
+    # --- UpdateView: Edit existing animal ---
     path('animals/<int:pk>/edit/', views.AnimalUpdateView.as_view(), name='animal-update'),
 
-    # DeleteView: Delete animal
+    # --- DeleteView: Delete animal ---
     path('animals/<int:pk>/delete/', views.AnimalDeleteView.as_view(), name='animal-delete'),
 
-    # FormView: Search animals
+    # --- FormView: Search animals ---
     path('animals/search/', views.AnimalSearchView.as_view(), name='animal-search'),
+
+    # --- ArchiveIndexView: All years that have animals ---
+    path('animals/archive/', views.AnimalArchiveIndexView.as_view(), name='animal-archive-index'),
+
+    # --- YearArchiveView: Animals added in a given year ---
+    path('animals/archive/<int:year>/', views.AnimalYearArchiveView.as_view(), name='animal-year-archive'),
+
+    # --- MonthArchiveView: Animals added in a given month (numeric month) ---
+    path('animals/archive/<int:year>/<int:month>/', views.AnimalMonthArchiveView.as_view(), name='animal-month-archive'),
+
+    # --- WeekArchiveView: Animals added in a given week ---
+    path('animals/archive/<int:year>/week/<int:week>/', views.AnimalWeekArchiveView.as_view(), name='animal-week-archive'),
+
+    # --- DayArchiveView: Animals added on a specific day ---
+    path('animals/archive/<int:year>/<int:month>/<int:day>/', views.AnimalDayArchiveView.as_view(), name='animal-day-archive'),
+
+    # --- TodayArchiveView: Animals added today (no date in URL) ---
+    path('animals/archive/today/', views.AnimalTodayArchiveView.as_view(), name='animal-today-archive'),
+
+    # --- DateDetailView: Single animal verified by date + pk ---
+    path('animals/archive/<int:year>/<int:month>/<int:day>/<int:pk>/',
+         views.AnimalDateDetailView.as_view(), name='animal-date-detail'),
 ]
 ```
 
@@ -268,6 +312,26 @@ urlpatterns = [
 | `UpdateView` | Displays a pre-filled form for an existing object and saves changes. | `model`, `fields` |
 | `DeleteView` | Displays a confirmation page and deletes the object on POST. | `model`, `success_url` |
 | `FormView` | Displays any form and processes its submission. Not tied to a model. | `form_class`, `template_name` |
+
+### Navigation View
+
+| View | What it does | Key attributes |
+|------|-------------|----------------|
+| `RedirectView` | Issues an HTTP redirect without rendering a template. | `pattern_name`, `permanent` |
+
+### Date-Based Views
+
+All date-based views share two required class attributes: `model` and `date_field` (the name of the `DateField` on the model to filter by). They also all accept `allow_empty = True` to return an empty page instead of a 404 when no records exist for that period.
+
+| View | What it does | Key automatic context variables |
+|------|-------------|--------------------------------|
+| `ArchiveIndexView` | Lists all objects grouped by year. | `date_list` (years with data), `object_list` |
+| `YearArchiveView` | Lists objects and months for a given year. | `year`, `date_list` (months), `object_list` |
+| `MonthArchiveView` | Lists all objects for a given year + month. | `month`, `object_list` |
+| `WeekArchiveView` | Lists all objects for a given year + week. | `week`, `object_list` |
+| `DayArchiveView` | Lists all objects for a given year + month + day. | `day`, `object_list` |
+| `TodayArchiveView` | Same as `DayArchiveView` but always uses today's date. | `day`, `object_list` |
+| `DateDetailView` | Retrieves a single object by date + pk. Prevents URL guessing. | `object` |
 
 ### Adding Extra Context
 
@@ -341,11 +405,31 @@ class AnimalSearchForm(forms.Form):
 from django.urls import reverse_lazy
 from django.views.generic import (
     TemplateView, ListView, DetailView,
-    CreateView, UpdateView, DeleteView, FormView,
+    CreateView, UpdateView, DeleteView,
+    FormView, RedirectView,
+)
+from django.views.generic.dates import (
+    ArchiveIndexView, YearArchiveView, MonthArchiveView,
+    WeekArchiveView, DayArchiveView, TodayArchiveView,
+    DateDetailView,
 )
 
 from .models import Animal
 from .forms import AnimalSearchForm
+
+
+# ---------------------------------------------------------------------------
+# RedirectView — /zoo/ redirects to the home page
+# ---------------------------------------------------------------------------
+class ZooRedirectView(RedirectView):
+    """
+    RedirectView issues an HTTP redirect without rendering any template.
+    'permanent=False' sends a 302 (temporary) redirect.
+    'pattern_name' resolves the destination by named URL instead of a
+    hard-coded string, so it stays correct if the URL ever changes.
+    """
+    permanent = False
+    pattern_name = 'animals:home'
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +535,7 @@ class AnimalCreateView(CreateView):
       - form_action: tells the shared template this is a Create operation
     """
     model = Animal
-    fields = ['name', 'age', 'weight', 'born_in_captivity']
+    fields = ['name', 'age', 'weight', 'born_in_captivity', 'date_added']
     template_name = 'animals/animal_form.html'
 
     def get_context_data(self, **kwargs):
@@ -474,7 +558,7 @@ class AnimalUpdateView(UpdateView):
       - form_action: tells the shared template this is an Update operation
     """
     model = Animal
-    fields = ['name', 'age', 'weight', 'born_in_captivity']
+    fields = ['name', 'age', 'weight', 'born_in_captivity', 'date_added']
     template_name = 'animals/animal_form.html'
 
     def get_context_data(self, **kwargs):
@@ -580,6 +664,196 @@ class AnimalSearchView(FormView):
             context['search_performed'] = True
 
         return context
+
+
+# ---------------------------------------------------------------------------
+# ArchiveIndexView — All years that have animals
+# ---------------------------------------------------------------------------
+class AnimalArchiveIndexView(ArchiveIndexView):
+    """
+    ArchiveIndexView groups all objects by the date_field and provides
+    'date_list' in the context: a queryset of distinct years that have
+    at least one record. allow_empty=True returns an empty page instead
+    of a 404 when no animals exist yet.
+
+    Extra context added:
+      - page_title
+      - total_years: how many distinct years have animals
+    """
+    model = Animal
+    date_field = 'date_added'
+    template_name = 'animals/animal_archive.html'
+    allow_empty = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = 'Animal Archive'
+        context['total_years'] = len(context.get('date_list') or [])
+        return context
+
+
+# ---------------------------------------------------------------------------
+# YearArchiveView — Animals added in a specific year
+# ---------------------------------------------------------------------------
+class AnimalYearArchiveView(YearArchiveView):
+    """
+    YearArchiveView filters objects whose date_field falls in the given year,
+    captured from the URL (e.g. /archive/2024/).
+    make_object_list=True puts the actual Animal objects (not just month
+    dates) into 'object_list' so we can display them in the template.
+
+    Extra context added:
+      - page_title: includes the year
+      - animal_count: number of animals added that year
+    """
+    model = Animal
+    date_field = 'date_added'
+    template_name = 'animals/animal_archive_year.html'
+    make_object_list = True
+    allow_empty = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = f"Animals Added in {self.get_year()}"
+        context['animal_count'] = len(context.get('object_list') or [])
+        return context
+
+
+# ---------------------------------------------------------------------------
+# MonthArchiveView — Animals added in a specific month
+# ---------------------------------------------------------------------------
+class AnimalMonthArchiveView(MonthArchiveView):
+    """
+    MonthArchiveView filters by year + month from the URL (e.g. /archive/2024/3/).
+    month_format='%m' allows numeric months instead of the default '%b' (Jan).
+
+    Extra context added:
+      - page_title: includes the month name and year
+      - animal_count: number of animals added that month
+    """
+    model = Animal
+    date_field = 'date_added'
+    template_name = 'animals/animal_archive_month.html'
+    month_format = '%m'
+    allow_empty = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        month_name = context['month'].strftime('%B')   # e.g. "March"
+        context['page_title'] = f"Animals Added in {month_name} {self.get_year()}"
+        context['animal_count'] = context['object_list'].count()
+        return context
+
+
+# ---------------------------------------------------------------------------
+# WeekArchiveView — Animals added in a specific week
+# ---------------------------------------------------------------------------
+class AnimalWeekArchiveView(WeekArchiveView):
+    """
+    WeekArchiveView filters by year + week number from the URL
+    (e.g. /archive/2024/week/12/).
+    week_format='%W' uses Monday-based week numbers (0–53).
+
+    Extra context added:
+      - page_title: includes the week number and year
+      - animal_count: number of animals added that week
+    """
+    model = Animal
+    date_field = 'date_added'
+    template_name = 'animals/animal_archive_week.html'
+    week_format = '%W'
+    allow_empty = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = f"Animals Added in Week {self.get_week()}, {self.get_year()}"
+        context['animal_count'] = context['object_list'].count()
+        return context
+
+
+# ---------------------------------------------------------------------------
+# DayArchiveView — Animals added on a specific day
+# ---------------------------------------------------------------------------
+class AnimalDayArchiveView(DayArchiveView):
+    """
+    DayArchiveView filters by year + month + day from the URL
+    (e.g. /archive/2024/3/15/).
+
+    Extra context added:
+      - page_title: includes the full formatted date
+      - animal_count: number of animals added on that day
+    """
+    model = Animal
+    date_field = 'date_added'
+    template_name = 'animals/animal_archive_day.html'
+    month_format = '%m'
+    allow_empty = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = f"Animals Added on {context['day'].strftime('%B %d, %Y')}"
+        context['animal_count'] = context['object_list'].count()
+        return context
+
+
+# ---------------------------------------------------------------------------
+# TodayArchiveView — Animals added today
+# ---------------------------------------------------------------------------
+class AnimalTodayArchiveView(TodayArchiveView):
+    """
+    TodayArchiveView works exactly like DayArchiveView but automatically
+    uses today's date — no date segments are needed in the URL (/archive/today/).
+    It reuses the same day template since the context variables are identical.
+
+    Extra context added:
+      - page_title: says "Today"
+      - animal_count: number of animals added today
+    """
+    model = Animal
+    date_field = 'date_added'
+    template_name = 'animals/animal_archive_day.html'
+    allow_empty = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['page_title'] = 'Animals Added Today'
+        context['animal_count'] = context['object_list'].count()
+        return context
+
+
+# ---------------------------------------------------------------------------
+# DateDetailView — Single animal verified by date + pk
+# ---------------------------------------------------------------------------
+class AnimalDateDetailView(DateDetailView):
+    """
+    DateDetailView retrieves a single object using both its pk AND the
+    date_field value embedded in the URL. This prevents URL enumeration:
+    the date in the URL must match the animal's actual date_added or
+    Django returns a 404.
+
+    URL example: /archive/2024/3/15/7/
+
+    It reuses animal_detail.html since it passes the same context variables
+    as DetailView ('animal', 'is_elderly', 'weight_category').
+
+    Extra context added:
+      - page_title: includes the animal's name
+      - is_elderly: derived boolean (same as DetailView)
+      - weight_category: derived label (same as DetailView)
+    """
+    model = Animal
+    date_field = 'date_added'
+    template_name = 'animals/animal_detail.html'
+    context_object_name = 'animal'
+    month_format = '%m'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        animal = self.get_object()
+        context['page_title'] = f'Animal: {animal.name} (Archive)'
+        context['is_elderly'] = animal.age > 15
+        context['weight_category'] = AnimalDetailView._weight_category(animal.weight)
+        return context
 ```
 
 ---
@@ -604,7 +878,9 @@ Every other template extends this file. The `{% block %}` tags define regions th
     <a href="{% url 'animals:home' %}">Home</a> |
     <a href="{% url 'animals:animal-list' %}">All Animals</a> |
     <a href="{% url 'animals:animal-create' %}">Add Animal</a> |
-    <a href="{% url 'animals:animal-search' %}">Search</a>
+    <a href="{% url 'animals:animal-search' %}">Search</a> |
+    <a href="{% url 'animals:animal-archive-index' %}">Archive</a> |
+    <a href="{% url 'animals:animal-today-archive' %}">Added Today</a>
 </nav>
 
 <hr>
@@ -646,6 +922,8 @@ Every other template extends this file. The `{% block %}` tags define regions th
     <li><a href="{% url 'animals:animal-list' %}">Browse all animals</a></li>
     <li><a href="{% url 'animals:animal-create' %}">Add a new animal</a></li>
     <li><a href="{% url 'animals:animal-search' %}">Search animals</a></li>
+    <li><a href="{% url 'animals:animal-archive-index' %}">Browse archive by date</a></li>
+    <li><a href="{% url 'animals:animal-today-archive' %}">Animals added today</a></li>
 </ul>
 {% endblock %}
 ```
@@ -671,6 +949,7 @@ Every other template extends this file. The `{% block %}` tags define regions th
             <th>Age (years)</th>
             <th>Weight (kg)</th>
             <th>Born in Captivity</th>
+            <th>Date Added</th>
             <th>Actions</th>
         </tr>
     </thead>
@@ -681,6 +960,7 @@ Every other template extends this file. The `{% block %}` tags define regions th
             <td>{{ animal.age }}</td>
             <td>{{ animal.weight }}</td>
             <td>{{ animal.born_in_captivity|yesno:"Yes,No" }}</td>
+            <td>{{ animal.date_added }}</td>
             <td>
                 <a href="{% url 'animals:animal-update' animal.pk %}">Edit</a> |
                 <a href="{% url 'animals:animal-delete' animal.pk %}">Delete</a>
@@ -730,12 +1010,14 @@ Every other template extends this file. The `{% block %}` tags define regions th
     </tr>
     <tr><th>Weight</th><td>{{ animal.weight }} kg ({{ weight_category }})</td></tr>
     <tr><th>Born in Captivity</th><td>{{ animal.born_in_captivity|yesno:"Yes,No" }}</td></tr>
+    <tr><th>Date Added</th><td>{{ animal.date_added }}</td></tr>
 </table>
 
 <p>
     <a href="{% url 'animals:animal-update' animal.pk %}">Edit this animal</a> |
     <a href="{% url 'animals:animal-delete' animal.pk %}">Delete this animal</a> |
-    <a href="{% url 'animals:animal-list' %}">Back to list</a>
+    <a href="{% url 'animals:animal-list' %}">Back to list</a> |
+    <a href="{% url 'animals:animal-archive-index' %}">Archive</a>
 </p>
 {% endblock %}
 ```
@@ -847,6 +1129,295 @@ This single template is shared by both `AnimalCreateView` and `AnimalUpdateView`
 
 ---
 
+### `animals/templates/animals/animal_archive.html` — ArchiveIndexView
+
+```html
+{% extends 'animals/base.html' %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+{#
+  Automatic context from ArchiveIndexView:
+    date_list  — queryset of years (as datetime objects) that have animals
+    object_list — all Animal objects (latest first)
+  Extra context from get_context_data():
+    total_years — count of distinct years
+#}
+
+<p>The archive spans <strong>{{ total_years }}</strong> year(s).</p>
+
+{% if date_list %}
+<ul>
+    {% for year in date_list %}
+    <li>
+        <a href="{% url 'animals:animal-year-archive' year.year %}">
+            {{ year.year }}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>No animals have been added yet.</p>
+{% endif %}
+
+{% endblock %}
+```
+
+---
+
+### `animals/templates/animals/animal_archive_year.html` — YearArchiveView
+
+```html
+{% extends 'animals/base.html' %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block heading %}{{ page_title }} — {{ animal_count }} animal(s){% endblock %}
+
+{% block content %}
+{#
+  Automatic context from YearArchiveView:
+    year        — the year as a datetime object
+    date_list   — queryset of months (datetime objects) that have animals
+    object_list — all Animal objects added that year (because make_object_list=True)
+  Extra context from get_context_data():
+    animal_count — total animals added this year
+#}
+
+<h2>Browse by month</h2>
+{% if date_list %}
+<ul>
+    {% for month in date_list %}
+    <li>
+        <a href="{% url 'animals:animal-month-archive' year.year month.month %}">
+            {{ month|date:"F" }}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>No months on record for this year.</p>
+{% endif %}
+
+<h2>All Animals Added in {{ year.year }}</h2>
+{% if object_list %}
+<table border="1">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Age</th>
+            <th>Weight (kg)</th>
+            <th>Born in Captivity</th>
+            <th>Date Added</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for animal in object_list %}
+        <tr>
+            <td>{{ animal.name }}</td>
+            <td>{{ animal.age }}</td>
+            <td>{{ animal.weight }}</td>
+            <td>{{ animal.born_in_captivity|yesno:"Yes,No" }}</td>
+            <td>{{ animal.date_added }}</td>
+            <td><a href="{{ animal.get_absolute_url }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No animals were added in {{ year.year }}.</p>
+{% endif %}
+
+<p><a href="{% url 'animals:animal-archive-index' %}">Back to archive index</a></p>
+
+{% endblock %}
+```
+
+---
+
+### `animals/templates/animals/animal_archive_month.html` — MonthArchiveView
+
+```html
+{% extends 'animals/base.html' %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block heading %}{{ page_title }} — {{ animal_count }} animal(s){% endblock %}
+
+{% block content %}
+{#
+  Automatic context from MonthArchiveView:
+    month       — the month as a datetime object
+    object_list — all Animal objects added that month
+  Extra context from get_context_data():
+    animal_count — total animals added this month
+#}
+
+{% if object_list %}
+<table border="1">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Age</th>
+            <th>Weight (kg)</th>
+            <th>Born in Captivity</th>
+            <th>Date Added</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for animal in object_list %}
+        <tr>
+            <td>{{ animal.name }}</td>
+            <td>{{ animal.age }}</td>
+            <td>{{ animal.weight }}</td>
+            <td>{{ animal.born_in_captivity|yesno:"Yes,No" }}</td>
+            <td>{{ animal.date_added }}</td>
+            <td>
+                <a href="{% url 'animals:animal-date-detail' animal.date_added.year animal.date_added.month animal.date_added.day animal.pk %}">
+                    View
+                </a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No animals were added during this month.</p>
+{% endif %}
+
+<p>
+    <a href="{% url 'animals:animal-year-archive' month.year %}">
+        Back to {{ month.year }} archive
+    </a> |
+    <a href="{% url 'animals:animal-archive-index' %}">Archive index</a>
+</p>
+
+{% endblock %}
+```
+
+---
+
+### `animals/templates/animals/animal_archive_week.html` — WeekArchiveView
+
+```html
+{% extends 'animals/base.html' %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block heading %}{{ page_title }} — {{ animal_count }} animal(s){% endblock %}
+
+{% block content %}
+{#
+  Automatic context from WeekArchiveView:
+    week        — the start date of the week as a datetime object
+    object_list — all Animal objects added during that week
+  Extra context from get_context_data():
+    animal_count — total animals added this week
+#}
+
+{% if object_list %}
+<table border="1">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Age</th>
+            <th>Weight (kg)</th>
+            <th>Born in Captivity</th>
+            <th>Date Added</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for animal in object_list %}
+        <tr>
+            <td>{{ animal.name }}</td>
+            <td>{{ animal.age }}</td>
+            <td>{{ animal.weight }}</td>
+            <td>{{ animal.born_in_captivity|yesno:"Yes,No" }}</td>
+            <td>{{ animal.date_added }}</td>
+            <td><a href="{{ animal.get_absolute_url }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No animals were added during this week.</p>
+{% endif %}
+
+<p>
+    Week starting {{ week|date:"N j, Y" }} |
+    <a href="{% url 'animals:animal-archive-index' %}">Archive index</a>
+</p>
+
+{% endblock %}
+```
+
+---
+
+### `animals/templates/animals/animal_archive_day.html` — DayArchiveView / TodayArchiveView
+
+This single template is shared by both `DayArchiveView` and `TodayArchiveView` since both provide identical context variables.
+
+```html
+{% extends 'animals/base.html' %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block heading %}{{ page_title }} — {{ animal_count }} animal(s){% endblock %}
+
+{% block content %}
+{#
+  Automatic context from DayArchiveView / TodayArchiveView:
+    day         — the date as a datetime object
+    object_list — all Animal objects added on that day
+  Extra context from get_context_data():
+    animal_count — total animals added on this day
+#}
+
+{% if object_list %}
+<table border="1">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Age</th>
+            <th>Weight (kg)</th>
+            <th>Born in Captivity</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for animal in object_list %}
+        <tr>
+            <td>{{ animal.name }}</td>
+            <td>{{ animal.age }}</td>
+            <td>{{ animal.weight }}</td>
+            <td>{{ animal.born_in_captivity|yesno:"Yes,No" }}</td>
+            <td>
+                <a href="{% url 'animals:animal-date-detail' day.year day.month day.day animal.pk %}">
+                    View (date-verified)
+                </a> |
+                <a href="{{ animal.get_absolute_url }}">View</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No animals were added on {{ day|date:"N j, Y" }}.</p>
+{% endif %}
+
+<p>
+    <a href="{% url 'animals:animal-month-archive' day.year day.month %}">
+        Back to {{ day|date:"F Y" }}
+    </a> |
+    <a href="{% url 'animals:animal-archive-index' %}">Archive index</a>
+</p>
+
+{% endblock %}
+```
+
+---
+
 ## 10. Running and Testing the App
 
 ### Create a Superuser (for Admin)
@@ -868,12 +1439,20 @@ Visit `http://127.0.0.1:8000/` in your browser.
 | URL | View | What to test |
 |-----|------|-------------|
 | `/` | HomeView | Animal counts |
-| `/animals/` | AnimalListView | Paginated table |
-| `/animals/add/` | AnimalCreateView | Create an animal |
-| `/animals/1/` | AnimalDetailView | View one animal |
+| `/zoo/` | ZooRedirectView | Should redirect to `/` |
+| `/animals/` | AnimalListView | Paginated table with date column |
+| `/animals/add/` | AnimalCreateView | Create form including date_added |
+| `/animals/1/` | AnimalDetailView | Detail with is_elderly and weight_category |
 | `/animals/1/edit/` | AnimalUpdateView | Edit form pre-filled |
 | `/animals/1/delete/` | AnimalDeleteView | Confirmation page |
 | `/animals/search/` | AnimalSearchView | Search by any attribute |
+| `/animals/archive/` | ArchiveIndexView | List of years |
+| `/animals/archive/2024/` | YearArchiveView | Animals in 2024, browseable by month |
+| `/animals/archive/2024/3/` | MonthArchiveView | Animals in March 2024 |
+| `/animals/archive/2024/week/12/` | WeekArchiveView | Animals in week 12 of 2024 |
+| `/animals/archive/2024/3/15/` | DayArchiveView | Animals added on Mar 15 2024 |
+| `/animals/archive/today/` | TodayArchiveView | Animals added today |
+| `/animals/archive/2024/3/15/1/` | DateDetailView | Animal #1 verified by date |
 
 ### Add Sample Data via Admin
 
@@ -881,7 +1460,7 @@ Visit `http://127.0.0.1:8000/` in your browser.
 http://127.0.0.1:8000/admin/
 ```
 
-Login with your superuser credentials and add several Animal objects to test all the views.
+Login with your superuser credentials and add several Animal objects with **different `date_added` values** (spread across multiple years, months, and days) so you can fully exercise all the archive views.
 
 ---
 
@@ -893,19 +1472,43 @@ Django's generic CBVs eliminate boilerplate. Instead of writing the same queryse
 
 ### Why `get_context_data()`?
 
-Every CBV calls `get_context_data()` to build the dictionary passed to the template. By calling `super().get_context_data(**kwargs)` first, you get all the automatic variables (like `object_list`, `form`, `page_obj`) and then simply add your own keys.
+Every CBV calls `get_context_data()` to build the dictionary passed to the template. By calling `super().get_context_data(**kwargs)` first, you get all the automatic variables (like `object_list`, `form`, `page_obj`, `date_list`) and then simply add your own keys on top.
 
 ### Why `reverse_lazy()`?
 
 `reverse_lazy()` is used in class-level attributes (like `success_url`) because Python evaluates class bodies at import time — before the URL configuration is loaded. `reverse_lazy()` defers the URL lookup until the first actual request.
 
+### Why `date_added` on the Model?
+
+All date-based archive views (`ArchiveIndexView`, `YearArchiveView`, etc.) require a `DateField` or `DateTimeField` to filter against. The `date_field` class attribute on each view tells Django which field to use. Without it, the archive views cannot function. `date_added` also serves as a useful audit field showing when each animal entered the system.
+
+### Why does `DateDetailView` need both a date and a pk?
+
+`DateDetailView` requires both the date URL segments and the pk to retrieve an object. This prevents URL enumeration attacks: a visitor cannot simply guess `/animals/archive/1999/1/1/999/` and retrieve any arbitrary record — the date in the URL must match the object's actual `date_added`. If it does not match, Django returns a 404.
+
+### Why does `TodayArchiveView` reuse the day template?
+
+`TodayArchiveView` is a subclass of `DayArchiveView` and provides the exact same context variables (`day`, `object_list`). Reusing `animal_archive_day.html` for both keeps the codebase DRY — there is no duplication between the two.
+
+### Why `pattern_name` in `RedirectView`?
+
+Using `pattern_name = 'animals:home'` instead of a hard-coded `url = '/'` means the redirect destination is always in sync with the URL configuration. If you ever change the home page URL, the redirect updates automatically.
+
 ### How Template Inheritance Works
 
 ```
-base.html           — defines {% block %} placeholders and the shared navbar/footer
-  └── home.html     — extends base.html and fills in its blocks
-  └── animal_list.html
-  └── ...
+base.html                 — defines {% block %} placeholders and the shared navbar/footer
+  ├── home.html           — TemplateView
+  ├── animal_list.html    — ListView
+  ├── animal_detail.html  — DetailView + DateDetailView
+  ├── animal_form.html    — CreateView + UpdateView
+  ├── animal_confirm_delete.html — DeleteView
+  ├── animal_search.html  — FormView
+  ├── animal_archive.html — ArchiveIndexView
+  ├── animal_archive_year.html  — YearArchiveView
+  ├── animal_archive_month.html — MonthArchiveView
+  ├── animal_archive_week.html  — WeekArchiveView
+  └── animal_archive_day.html   — DayArchiveView + TodayArchiveView
 ```
 
 Child templates only provide content for the blocks they need. Everything else is inherited from the parent.
