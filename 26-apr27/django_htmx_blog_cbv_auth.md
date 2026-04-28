@@ -167,6 +167,9 @@ class CustomLoginView(LoginView):
 class CustomLogoutView(LogoutView):
     # LogoutView handles GET and POST; LOGOUT_REDIRECT_URL in settings
     # controls where the user lands after logging out.
+    # def get(self, request, *args, **kwargs):
+    #     logout(request)
+    #     return redirect('login')
     pass
 
 
