@@ -377,13 +377,17 @@ blog/
 
 <p>
     Logged in as <strong>{{ request.user.username }}</strong> |
-    <a href=""
-       hx-post ="/logout/"
-       hx-include="[name=csrfmiddlewaretoken]">Logout</a>
-    <!--<form method="post" action="/logout/" style="display:inline;">
+    <a href="#"
+       hx-target="body"
+       hx-post ="{% url 'logout'%}"
+       {% comment %} hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' {% endcomment %}
+       hx-include="[name=csrfmiddlewaretoken]"
+       hx-push-url="true">Logout</a>
+    {% comment %} <form method="post" action="/logout/" style="display:inline;">
     {% csrf_token %}
     <button type="submit">Logout</button>
-    </form>-->
+    </form> {% endcomment %}
+
 </p>
 
 <hr>
