@@ -1,6 +1,6 @@
 # Django + HTMX
 ## CRUD Operations & Search with Class-Based Views
-### Car Dealership Tutorial for Python Beginners
+### Car Dealership Tutorial
 
 ---
 
