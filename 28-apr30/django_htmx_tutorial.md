@@ -1,0 +1,981 @@
+# Django + HTMX
+## CRUD Operations & Search with Class-Based Views
+### Car Dealership Tutorial for Python Beginners
+
+---
+
+## Table of Contents
+
+1. [Overview & What You'll Build](#1-overview--what-youll-build)
+2. [Project Setup](#2-project-setup)
+3. [Models](#3-models)
+4. [Forms](#4-forms)
+5. [Views](#5-views)
+6. [URL Configuration](#6-url-configuration)
+7. [Templates](#7-templates)
+8. [HTMX — How It Works](#8-htmx--how-it-works)
+9. [Key Concepts Explained](#9-key-concepts-explained)
+10. [Running the Project](#10-running-the-project)
+11. [Extensions to Try](#11-extensions-to-try)
+
+---
+
+## 1. Overview & What You'll Build
+
+In this tutorial you will build a web application for a car dealership company that has 4 branches. Each branch lists cars and the sellers who work there. You will practise the core skills every Django developer needs: connecting models with foreign keys, writing class-based views, and making pages feel dynamic with HTMX — all without writing a single line of custom CSS.
+
+### What you will learn
+
+- How to design models connected by `ForeignKey` and `ManyToManyField`
+- How Django's ORM lets views pull data from multiple related models
+- How to use Django's built-in generic class-based views (`ListView`, `DetailView`, `CreateView`, `UpdateView`, `DeleteView`)
+- How to add HTMX so pages update without a full reload
+- How to build live search and inline CRUD entirely in Django templates
+
+### Project structure at a glance
+
+```
+dealership/          ← Django project folder
+├── dealership/      ← project settings package
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+└── showroom/        ← our single app
+    ├── models.py
+    ├── views.py
+    ├── urls.py
+    ├── forms.py
+    └── templates/
+        └── showroom/
+            ├── base.html
+            ├── branch_list.html
+            ├── branch_detail.html
+            ├── car_list.html
+            ├── car_form.html
+            ├── car_confirm_delete.html
+            ├── seller_list.html
+            └── partials/
+                └── car_table.html
+                
+```
+
+---
+
+## 2. Project Setup
+
+### Prerequisites
+
+- Python 3.10 or newer installed
+- Basic familiarity with Python functions and classes
+- A terminal / command prompt
+
+### Step-by-step setup
+
+**1. Create and activate a virtual environment**
+
+```bash
+# Windows
+python -m venv venv
+venv\Scripts\activate
+
+# macOS / Linux
+python -m venv venv
+source venv/bin/activate
+```
+
+**2. Install Django**
+
+```bash
+pip install django
+```
+
+**3. Create the project and app**
+
+```bash
+django-admin startproject dealership .
+python manage.py startapp showroom
+```
+
+**4. Register the app in settings.py**
+
+Open `dealership/settings.py` and add the app to `INSTALLED_APPS`:
+
+```python
+INSTALLED_APPS = [
+    # ... Django built-ins ...
+    'showroom',
+]
+```
+
+> 💡 No external libraries needed for HTMX — we load it from a CDN in the base template.
+
+---
+
+## 3. Models
+
+We keep every model minimal on purpose. The goal is to show different Django field types and how models connect to each other — not to build an exhaustive database schema.
+
+### Data-type cheat sheet
+
+| Django field      | Python type   | Used in                              |
+|-------------------|---------------|--------------------------------------|
+| `CharField`       | `str`         | Branch name, city, car make/model    |
+| `TextField`       | `str` (long)  | Branch notes                         |
+| `IntegerField`    | `int`         | Car year                             |
+| `DecimalField`    | `Decimal`     | Car price                            |
+| `BooleanField`    | `bool`        | Seller active status                 |
+| `DateField`       | `datetime.date` | Branch opened date                 |
+| `ForeignKey`      | model instance | Car → Branch, Car → Seller          |
+| `ManyToManyField` | QuerySet      | Seller ↔ Branch                      |
+
+### models.py
+
+```python
+from django.db import models
+
+
+class Branch(models.Model):
+    name        = models.CharField(max_length=100)   # CharField → str
+    city        = models.CharField(max_length=80)
+    opened_date = models.DateField()                 # DateField
+    notes       = models.TextField(blank=True)       # TextField (optional)
+
+    def __str__(self):
+        return f'{self.name} ({self.city})'
+
+
+class Seller(models.Model):
+    first_name = models.CharField(max_length=50)
+    last_name  = models.CharField(max_length=50)
+    # ManyToManyField: a seller can work at multiple branches
+    branches   = models.ManyToManyField(
+        Branch,
+        related_name='sellers',  # branch.sellers.all()
+    )
+    is_active  = models.BooleanField(default=True)   # BooleanField
+
+    def __str__(self):
+        return f'{self.first_name} {self.last_name}'
+
+
+class Car(models.Model):
+    TRANSMISSION_CHOICES = [
+        ('auto',   'Automatic'),
+        ('manual', 'Manual'),
+    ]
+
+    make         = models.CharField(max_length=60)
+    model        = models.CharField(max_length=60)
+    year         = models.IntegerField()             # IntegerField
+    price        = models.DecimalField(              # DecimalField
+                       max_digits=10, decimal_places=2
+                   )
+    transmission = models.CharField(
+                       max_length=10,
+                       choices=TRANSMISSION_CHOICES,
+                       default='auto',
+                   )
+    # ForeignKey: each car belongs to one branch
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name='cars',   # branch.cars.all()
+    )
+    # ForeignKey: each car is managed by one seller
+    seller = models.ForeignKey(
+        Seller,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='cars',   # seller.cars.all()
+    )
+
+    def __str__(self):
+        return f'{self.year} {self.make} {self.model}'
+```
+
+### Model relationship diagram
+
+```
+Branch ──< Car >── Seller
+  │                  │
+  └──── M2M ─────────┘
+   (branch.sellers)  (seller.branches)
+
+One Branch  has many Cars           (ForeignKey on Car)
+One Seller  has many Cars           (ForeignKey on Car)
+One Seller  works at many Branches  (ManyToManyField)
+One Branch  has many Sellers        (reverse of ManyToManyField)
+```
+
+### Create and apply migrations
+
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
+
+### Seed data (management command — optional but recommended)
+
+Create this file so you can quickly fill the database for testing.
+
+Create file: `showroom/management/commands/seed.py`
+
+```python
+from django.core.management.base import BaseCommand
+from showroom.models import Branch, Seller, Car
+import datetime
+
+
+class Command(BaseCommand):
+    def handle(self, *args, **options):
+        # 4 branches
+        b1 = Branch.objects.create(
+            name='North End',
+            city='Toronto',
+            opened_date=datetime.date(2010, 3, 15),
+        )
+        b2 = Branch.objects.create(
+            name='Lakeshore',
+            city='Toronto',
+            opened_date=datetime.date(2015, 7, 1),
+        )
+        b3 = Branch.objects.create(
+            name='Westgate',
+            city='Mississauga',
+            opened_date=datetime.date(2018, 1, 20),
+        )
+        b4 = Branch.objects.create(
+            name='Eastview',
+            city='Scarborough',
+            opened_date=datetime.date(2021, 9, 5),
+        )
+
+        # 3 sellers — some work at multiple branches
+        s1 = Seller.objects.create(first_name='Alice', last_name='Martin')
+        s2 = Seller.objects.create(first_name='Bob',   last_name='Chen')
+        s3 = Seller.objects.create(first_name='Carol', last_name='Patel')
+
+        s1.branches.set([b1, b2])   # Alice works at two branches
+        s2.branches.set([b1, b3])
+        s3.branches.set([b2, b3, b4])
+
+        # a few cars
+        Car.objects.create(make='Toyota', model='Camry',    year=2022,
+                           price=28500, branch=b1, seller=s1)
+        Car.objects.create(make='Honda',  model='Civic',    year=2023,
+                           price=26000, branch=b1, seller=s2)
+        Car.objects.create(make='Ford',   model='F-150',    year=2021,
+                           price=45000, branch=b2, seller=s3,
+                           transmission='manual')
+        Car.objects.create(make='BMW',    model='3 Series', year=2023,
+                           price=55000, branch=b3, seller=s2)
+
+        self.stdout.write(self.style.SUCCESS('Database seeded!'))
+```
+
+```bash
+python manage.py seed
+```
+
+---
+
+## 4. Forms
+
+Django forms handle validation automatically. We use `ModelForm` so the form is generated directly from our model fields.
+
+```python
+# showroom/forms.py
+from django import forms
+from .models import Car, Seller
+
+
+class CarForm(forms.ModelForm):
+    class Meta:
+        model  = Car
+        fields = ['make', 'model', 'year', 'price',
+                  'transmission', 'branch', 'seller']
+
+
+class SellerForm(forms.ModelForm):
+    class Meta:
+        model  = Seller
+        fields = ['first_name', 'last_name', 'branches', 'is_active']
+```
+
+> 💡 `ModelForm` automatically creates the right HTML input for each field type — a checkbox for `BooleanField`, a number input for `IntegerField`, a dropdown for `ForeignKey`, etc.
+
+---
+
+## 5. Views
+
+Class-based views (CBVs) give you full CRUD with very little code. We also add a search view that returns only a partial HTML fragment — that partial is what HTMX will swap into the page.
+
+### 5.1 Branch views (read-only)
+
+Branches are managed by admins only, so we expose just list and detail views.
+
+```python
+# showroom/views.py
+from django.views.generic import (
+    ListView, DetailView, CreateView, UpdateView, DeleteView
+)
+from django.urls import reverse_lazy
+from django.db.models import Q
+from django.http import HttpResponse
+from .models import Branch, Seller, Car
+from .forms  import CarForm, SellerForm
+
+
+# ── Branches ───────────────────────────────────────────────────────────────
+
+class BranchListView(ListView):
+    model               = Branch
+    template_name       = 'showroom/branch_list.html'
+    context_object_name = 'branches'
+
+
+class BranchDetailView(DetailView):
+    model               = Branch
+    template_name       = 'showroom/branch_detail.html'
+    context_object_name = 'branch'
+
+    # 🔑 KEY CONCEPT: add extra context from related models
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # branch.cars uses the related_name we set on Car.branch
+        ctx['cars']    = self.object.cars.select_related('seller')
+        # branch.sellers uses the ManyToManyField related_name
+        ctx['sellers'] = self.object.sellers.filter(is_active=True)
+        return ctx
+```
+
+### 5.2 Car views (full CRUD)
+
+```python
+# ── Cars ───────────────────────────────────────────────────────────────────
+
+class CarListView(ListView):
+    model               = Car
+    template_name       = 'showroom/car_list.html'
+    context_object_name = 'cars'
+    # Eager-load branch and seller to avoid N+1 queries
+    queryset            = Car.objects.select_related('branch', 'seller')
+
+
+class CarCreateView(CreateView):
+    model         = Car
+    form_class    = CarForm
+    template_name = 'showroom/car_form.html'
+    success_url   = reverse_lazy('car-list')
+
+
+class CarUpdateView(UpdateView):
+    model         = Car
+    form_class    = CarForm
+    template_name = 'showroom/car_form.html'
+    success_url   = reverse_lazy('car-list')
+
+
+class CarDeleteView(DeleteView):
+    model         = Car
+    template_name = 'showroom/car_confirm_delete.html'
+    success_url   = reverse_lazy('car-list')
+
+
+# ── HTMX: live search (returns a partial HTML fragment) ────────────────────
+
+class CarSearchView(ListView):
+    model               = Car
+    # Returns a partial template, not a full page
+    template_name       = 'showroom/partials/car_table.html'
+    context_object_name = 'cars'
+
+    def get_queryset(self):
+        q = self.request.GET.get('q', '')
+        qs = Car.objects.select_related('branch', 'seller')
+        if q:
+            qs = qs.filter(
+                Q(make__icontains=q)  |
+                Q(model__icontains=q) |
+                Q(branch__name__icontains=q)
+            )
+        return qs
+```
+
+### 5.3 Seller views (full CRUD)
+
+```python
+# ── Sellers ────────────────────────────────────────────────────────────────
+
+class SellerListView(ListView):
+    model               = Seller
+    template_name       = 'showroom/seller_list.html'
+    context_object_name = 'sellers'
+    queryset            = Seller.objects.prefetch_related('branches')
+
+
+class SellerDetailView(DetailView):
+    model               = Seller
+    template_name       = 'showroom/seller_detail.html'
+    context_object_name = 'seller'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['cars'] = self.object.cars.select_related('branch')
+        return ctx
+
+
+class SellerCreateView(CreateView):
+    model         = Seller
+    form_class    = SellerForm
+    template_name = 'showroom/seller_form.html'
+    success_url   = reverse_lazy('seller-list')
+
+
+class SellerUpdateView(UpdateView):
+    model         = Seller
+    form_class    = SellerForm
+    template_name = 'showroom/seller_form.html'
+    success_url   = reverse_lazy('seller-list')
+
+
+class SellerDeleteView(DeleteView):
+    model         = Seller
+    template_name = 'showroom/seller_confirm_delete.html'
+    success_url   = reverse_lazy('seller-list')
+
+
+# ── HTMX: inline delete returns empty 200 so HTMX removes the row ──────────
+
+class CarInlineDeleteView(DeleteView):
+    model = Car
+
+    def form_valid(self, form):
+        self.object.delete()
+        # Return empty response — HTMX replaces the deleted row with nothing
+        return HttpResponse('')
+```
+
+> 💡 `select_related('branch', 'seller')` makes Django fetch related rows in a single SQL JOIN instead of one extra query per row. Always use it in list views.
+
+---
+
+## 6. URL Configuration
+
+### showroom/urls.py
+
+```python
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    # Branches
+    path('',                 views.BranchListView.as_view(),  name='branch-list'),
+    path('branch/<int:pk>/', views.BranchDetailView.as_view(), name='branch-detail'),
+
+    # Cars
+    path('cars/',                    views.CarListView.as_view(),       name='car-list'),
+    path('cars/add/',                views.CarCreateView.as_view(),     name='car-create'),
+    path('cars/<int:pk>/edit/',      views.CarUpdateView.as_view(),     name='car-update'),
+    path('cars/<int:pk>/delete/',    views.CarDeleteView.as_view(),     name='car-delete'),
+    path('cars/<int:pk>/inline-delete/',
+                                     views.CarInlineDeleteView.as_view(),
+                                     name='car-inline-delete'),
+    # HTMX search endpoint
+    path('cars/search/',             views.CarSearchView.as_view(),     name='car-search'),
+
+    # Sellers
+    path('sellers/',                 views.SellerListView.as_view(),    name='seller-list'),
+    path('sellers/<int:pk>/',        views.SellerDetailView.as_view(),  name='seller-detail'),
+    path('sellers/add/',             views.SellerCreateView.as_view(),  name='seller-create'),
+    path('sellers/<int:pk>/edit/',   views.SellerUpdateView.as_view(),  name='seller-update'),
+    path('sellers/<int:pk>/delete/', views.SellerDeleteView.as_view(),  name='seller-delete'),
+]
+```
+
+### dealership/urls.py
+
+```python
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', include('showroom.urls')),
+]
+```
+
+---
+
+## 7. Templates
+
+All templates use plain HTML with no custom CSS. HTMX is loaded from a CDN in the base template.
+
+### 7.1 base.html
+
+Every other template extends this one. Note the script tag at the bottom and the `hx-headers` attribute on `<body>` — this ensures every HTMX request carries the Django CSRF token.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Dealership{% endblock %}</title>
+</head>
+<!-- hx-headers sends the CSRF token with every HTMX request -->
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  <nav>
+    <a href="{% url 'branch-list' %}">Branches</a> |
+    <a href="{% url 'car-list' %}">Cars</a> |
+    <a href="{% url 'seller-list' %}">Sellers</a>
+  </nav>
+  <hr>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- HTMX from CDN — no installation needed -->
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</body>
+</html>
+```
+
+### 7.2 branch_list.html
+
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}Branches{% endblock %}
+{% block content %}
+<h1>Our 4 Branches</h1>
+<ul>
+  {% for branch in branches %}
+    <li>
+      <a href="{% url 'branch-detail' branch.pk %}">{{ branch }}</a>
+      &mdash; Opened: {{ branch.opened_date|date:"M d, Y" }}
+    </li>
+  {% endfor %}
+</ul>
+{% endblock %}
+```
+
+### 7.3 branch_detail.html — showing related data
+
+This template demonstrates how one view can present data from all three related models at once.
+
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}{{ branch.name }}{% endblock %}
+{% block content %}
+<h1>{{ branch.name }} — {{ branch.city }}</h1>
+<p>Opened: {{ branch.opened_date }}</p>
+<p>{{ branch.notes }}</p>
+
+<h2>Active Sellers at this branch</h2>
+<ul>
+  {% for seller in sellers %}
+    {# seller comes from ctx['sellers'] = branch.sellers.filter(is_active=True) #}
+    <li>
+      <a href="{% url 'seller-detail' seller.pk %}">{{ seller }}</a>
+    </li>
+  {% empty %}
+    <li>No active sellers.</li>
+  {% endfor %}
+</ul>
+
+<h2>Cars at this branch</h2>
+<a href="{% url 'car-create' %}">+ Add a car</a>
+<table border="1">
+  <tr>
+    <th>Car</th><th>Year</th><th>Price</th>
+    <th>Transmission</th><th>Seller</th><th>Actions</th>
+  </tr>
+  {% for car in cars %}
+    {# car comes from ctx['cars'] = branch.cars.select_related('seller') #}
+    <tr id="car-{{ car.pk }}">
+      <td>{{ car.make }} {{ car.model }}</td>
+      <td>{{ car.year }}</td>
+      <td>${{ car.price }}</td>
+      <td>{{ car.get_transmission_display }}</td>
+      <td>{{ car.seller }}</td>
+      <td>
+        <a href="{% url 'car-update' car.pk %}">Edit</a>
+        <!-- HTMX inline delete: replaces #car-{{ car.pk }} with empty string -->
+        <button
+          hx-delete="{% url 'car-inline-delete' car.pk %}"
+          hx-target="#car-{{ car.pk }}"
+          hx-swap="outerHTML"
+          hx-confirm="Delete this car?">
+          Delete
+        </button>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">No cars at this branch.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
+```
+
+### 7.4 car_list.html — HTMX live search
+
+The search input fires a GET request as you type. HTMX swaps only the table, not the whole page.
+
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}All Cars{% endblock %}
+{% block content %}
+<h1>All Cars</h1>
+<a href="{% url 'car-create' %}">+ Add Car</a>
+
+<!--
+  hx-get      → the URL HTMX calls
+  hx-trigger  → fires on keyup with 300 ms debounce
+  hx-target   → the element whose HTML gets replaced
+  hx-swap     → replace the inner HTML of the target
+-->
+<input
+  type="search"
+  name="q"
+  placeholder="Search by make, model or branch..."
+  hx-get="{% url 'car-search' %}"
+  hx-trigger="keyup changed delay:300ms"
+  hx-target="#car-results"
+  hx-swap="innerHTML"
+>
+
+<!-- Initial full list rendered by the server -->
+<div id="car-results">
+  {% include 'showroom/partials/car_table.html' %}
+</div>
+{% endblock %}
+```
+
+### 7.5 partials/car_table.html — reusable fragment
+
+This partial is used both for the initial render and for every HTMX search response. It does **not** extend `base.html`.
+
+```html
+{# This template renders with NO extends — it is a fragment, not a full page #}
+<table border="1">
+  <tr>
+    <th>Car</th><th>Year</th><th>Price</th>
+    <th>Branch</th><th>Seller</th><th>Actions</th>
+  </tr>
+  {% for car in cars %}
+    <tr id="car-{{ car.pk }}">
+      <td>{{ car.make }} {{ car.model }}</td>
+      <td>{{ car.year }}</td>
+      <td>${{ car.price }}</td>
+      <td>
+        <a href="{% url 'branch-detail' car.branch.pk %}">
+          {{ car.branch.name }}
+        </a>
+      </td>
+      <td>{{ car.seller }}</td>
+      <td>
+        <a href="{% url 'car-update' car.pk %}">Edit</a> |
+        <a href="{% url 'car-delete' car.pk %}">Delete</a>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">No cars found.</td></tr>
+  {% endfor %}
+</table>
+```
+
+### 7.6 car_form.html — create & update
+
+The same template works for both `CarCreateView` and `CarUpdateView`. Django sets `object` only on updates, so we use it to show a different title.
+
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}
+  {% if object %}Edit Car{% else %}Add Car{% endif %}
+{% endblock %}
+{% block content %}
+<h1>{% if object %}Edit {{ object }}{% else %}Add a Car{% endif %}</h1>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Save</button>
+  <a href="{% url 'car-list' %}">Cancel</a>
+</form>
+{% endblock %}
+```
+
+### 7.7 car_confirm_delete.html
+
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}Delete Car{% endblock %}
+{% block content %}
+<h1>Delete {{ object }}?</h1>
+<p>This action cannot be undone.</p>
+<form method="post">
+  {% csrf_token %}
+  <button type="submit">Yes, delete</button>
+  <a href="{% url 'car-list' %}">Cancel</a>
+</form>
+{% endblock %}
+```
+
+### 7.8 seller_list.html — ManyToManyField display
+
+Notice how we iterate over `seller.branches.all` to display multiple branches per seller.
+
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}Sellers{% endblock %}
+{% block content %}
+<h1>Sellers</h1>
+<a href="{% url 'seller-create' %}">+ Add Seller</a>
+<table border="1">
+  <tr>
+    <th>Name</th><th>Branches</th><th>Active</th><th>Actions</th>
+  </tr>
+  {% for seller in sellers %}
+    <tr>
+      <td>
+        <a href="{% url 'seller-detail' seller.pk %}">{{ seller }}</a>
+      </td>
+      <td>
+        {# seller.branches is a ManyToManyField — iterate like any QuerySet #}
+        {% for branch in seller.branches.all %}
+          {{ branch.name }}{% if not forloop.last %}, {% endif %}
+        {% endfor %}
+      </td>
+      <td>{{ seller.is_active|yesno:"Yes,No" }}</td>
+      <td>
+        <a href="{% url 'seller-update' seller.pk %}">Edit</a> |
+        <a href="{% url 'seller-delete' seller.pk %}">Delete</a>
+      </td>
+    </tr>
+  {% endfor %}
+</table>
+{% endblock %}
+```
+### 7.9. `seller_detail.html`
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}{{ seller }}{% endblock %}
+{% block content %}
+<h1>{{ seller.first_name }} {{ seller.last_name }}</h1>
+<p>Status: {% if seller.is_active %}Active{% else %}Inactive{% endif %}</p>
+
+<h2>Branches</h2>
+<ul>
+  {% for branch in seller.branches.all %}
+    <li><a href="{% url 'branch-detail' branch.pk %}">{{ branch.name }}</a></li>
+  {% empty %}
+    <li>No branches assigned.</li>
+  {% endfor %}
+</ul>
+
+<h2>Cars Managed</h2>
+<ul>
+  {% for car in cars %}
+    <li>{{ car.year }} {{ car.make }} {{ car.model }} ({{ car.branch.name }})</li>
+  {% empty %}
+    <li>No cars managed.</li>
+  {% endfor %}
+</ul>
+<br>
+<a href="{% url 'seller-list' %}">Back to Sellers</a>
+{% endblock %}
+```
+
+### 7.10. `seller_form.html`
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}{% if object %}Edit Seller{% else %}Add Seller{% endif %}{% endblock %}
+{% block content %}
+<h1>{% if object %}Edit {{ object }}{% else %}Add a Seller{% endif %}</h1>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Save</button>
+  <a href="{% url 'seller-list' %}">Cancel</a>
+</form>
+{% endblock %}
+```
+
+### 7.11. `seller_confirm_delete.html`
+```html
+{% extends 'showroom/base.html' %}
+{% block title %}Delete Seller{% endblock %}
+{% block content %}
+<h1>Delete {{ object }}?</h1>
+<p>Are you sure you want to delete this seller? This cannot be undone.</p>
+<form method="post">
+  {% csrf_token %}
+  <button type="submit">Yes, delete</button>
+  <a href="{% url 'seller-list' %}">Cancel</a>
+</form>
+{% endblock %}
+```
+
+---
+
+## 8. HTMX — How It Works
+
+HTMX lets any HTML element make HTTP requests and swap the response into the page. You control everything with HTML attributes — no JavaScript required.
+
+### The HTMX attributes you need
+
+| Attribute    | What it does                         | Example value                    |
+|--------------|--------------------------------------|----------------------------------|
+| `hx-get`     | Make a GET request                   | `/cars/search/`                  |
+| `hx-delete`  | Make a DELETE request                | `/cars/5/inline-delete/`         |
+| `hx-trigger` | When to fire the request             | `keyup changed delay:300ms`      |
+| `hx-target`  | CSS selector of element to update    | `#car-results`                   |
+| `hx-swap`    | How to replace the target            | `innerHTML` / `outerHTML`        |
+| `hx-confirm` | Browser confirmation dialog          | `Delete this car?`               |
+| `hx-headers` | Extra HTTP headers on every request  | `{"X-CSRFToken": "..."}` on body |
+
+### Live search flow
+
+```
+User types in search box
+        ↓
+HTMX fires GET /cars/search/?q=cam  (after 300 ms idle)
+        ↓
+Django CarSearchView filters queryset, renders partials/car_table.html
+        ↓
+HTMX swaps the HTML into <div id="car-results">
+        ↓
+Page updates without reload ✓
+```
+
+### Inline delete flow
+
+```
+User clicks Delete button
+        ↓
+Browser shows confirm dialog (hx-confirm)
+        ↓
+HTMX fires DELETE /cars/5/inline-delete/
+        ↓
+Django deletes the car, returns empty 200 response
+        ↓
+HTMX replaces <tr id="car-5"> with empty string (outerHTML swap)
+        ↓
+Row disappears without reload ✓
+```
+
+### CSRF token fix
+
+Django's CSRF middleware blocks DELETE requests unless the token is present. Add `hx-headers` to `<body>` in `base.html` so every HTMX request carries it automatically:
+
+```html
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+```
+
+---
+
+## 9. Key Concepts Explained
+
+### ForeignKey vs ManyToManyField
+
+| Concept        | ForeignKey                         | ManyToManyField                    |
+|----------------|------------------------------------|------------------------------------|
+| Relationship   | Many-to-one                        | Many-to-many                       |
+| Example        | Many cars belong to one branch     | Sellers work at many branches      |
+| DB storage     | Column in child table              | Separate join table                |
+| Access forward | `car.branch`                       | `seller.branches.all()`            |
+| Access reverse | `branch.cars.all()`                | `branch.sellers.all()`             |
+
+### How `related_name` works
+
+```python
+# In models.py:
+branch = models.ForeignKey(Branch, related_name='cars', ...)
+
+# In a view or template you can then write:
+branch.cars.all()              # all cars belonging to this branch
+branch.cars.filter(year=2023)  # filter the related set
+branch.cars.count()            # how many cars at this branch
+```
+
+### `get_context_data` — adding extra data to a view
+
+By default, a `DetailView` only passes the single object to the template. Override `get_context_data` to pass anything else:
+
+```python
+def get_context_data(self, **kwargs):
+    # 1. Call the parent method first to get the default context
+    ctx = super().get_context_data(**kwargs)
+    # 2. self.object is the Branch instance Django fetched for us
+    ctx['cars']    = self.object.cars.select_related('seller')
+    ctx['sellers'] = self.object.sellers.filter(is_active=True)
+    # 3. Return the enriched context
+    return ctx
+
+# Now the template can use {{ cars }} and {{ sellers }} alongside {{ branch }}
+```
+
+### `select_related` vs `prefetch_related`
+
+- Use `select_related` for `ForeignKey` or `OneToOneField` (single JOIN, fewer queries).
+- Use `prefetch_related` for `ManyToManyField` or reverse `ForeignKey` (separate queries, combined in Python).
+
+```python
+# ForeignKey → select_related
+Car.objects.select_related('branch', 'seller')  # 1 query
+
+# ManyToManyField → prefetch_related
+Seller.objects.prefetch_related('branches')     # 2 queries total
+```
+
+---
+
+## 10. Running the Project
+
+### Start the development server
+
+```bash
+python manage.py runserver
+```
+
+Visit `http://127.0.0.1:8000/` in your browser. You should see the branch list.
+
+### Register models in admin (optional but useful)
+
+```python
+# showroom/admin.py
+from django.contrib import admin
+from .models import Branch, Seller, Car
+
+admin.site.register(Branch)
+admin.site.register(Seller)
+admin.site.register(Car)
+```
+
+```bash
+python manage.py createsuperuser
+# Visit http://127.0.0.1:8000/admin/
+```
+
+### Checklist before testing
+
+- [ ] `makemigrations` and `migrate` have run
+- [ ] You have seeded data (`python manage.py seed`) or added records via admin
+- [ ] `base.html` includes the HTMX CDN script tag
+- [ ] `base.html` `<body>` has `hx-headers` with `csrf_token`
+- [ ] `car-inline-delete` URL is registered in `urls.py`
+- [ ] `partials/car_table.html` exists and does **not** extend `base.html`
+
+---
+
+## 11. Extensions to Try
+
+Once the core app works, practise these additions on your own:
+
+1. Add pagination to `CarListView` using Django's built-in `paginate_by = 10`
+2. Add an `hx-indicator` spinner that shows while HTMX waits for a response
+3. Create a `SellerSearchView` similar to `CarSearchView`
+4. Add a `BranchFilterView` that filters cars by branch using a dropdown
+5. Write a `CarDetailView` (`DetailView`) showing all fields plus the seller's other cars
+6. Use the Django messages framework to show a success toast after create/update
+
+> 💡 All of the above can be done without adding any CSS. Focus on the Django and HTMX mechanics first; style later.
